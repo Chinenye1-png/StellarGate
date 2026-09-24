@@ -1,17 +1,17 @@
 use crate::api::payments::{AppError, JsonBody};
-use crate::{db, AppState};
+use crate::{AppState, db};
 use axum::{
+    Json,
     extract::{ConnectInfo, Extension, Path, Request, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::IntoResponse,
     routing::{get, post},
-    Json,
 };
 use governor::clock::Clock;
 use ipnet::IpNet;
 use moka::sync::Cache;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -228,7 +228,6 @@ pub fn router(state: Arc<AppState>) -> axum::Router {
         through referrers. Applied outermost so they also cover responses the
         inner layers generate (rate-limit 429s, timeout 408s, and the router's
         404/405 fallbacks).
-
         `nosniff` and `referrer-policy` override any inner value because a
         stricter setting elsewhere is never correct (payment ids travel in
         URLs). `cache-control` is `if_not_present` so a handler that
@@ -605,13 +604,13 @@ async fn issue_api_key(
     }
 
     let label = body.and_then(|JsonBody(b)| b.label);
-    if let Some(l) = &label {
-        if l.len() > 100 {
-            return Err(AppError::bad_request(
-                "invalid_label",
-                "label exceeds max length of 100 characters",
-            ));
-        }
+    if let Some(l) = &label
+        && l.len() > 100
+    {
+        return Err(AppError::bad_request(
+            "invalid_label",
+            "label exceeds max length of 100 characters",
+        ));
     }
 
     let (raw_key, prefix) = db::generate_api_key();
@@ -759,8 +758,7 @@ async fn rate_limit_middleware(
         below. */
         let limiter = rate_limit.limiters.get_with(key, || {
             Arc::new(governor::RateLimiter::direct(governor::Quota::per_second(
-                NonZeroU32::new(effective_rps)
-                    .expect("effective_rps is clamped to at least 1"),
+                NonZeroU32::new(effective_rps).expect("effective_rps is clamped to at least 1"),
             )))
         });
 
@@ -770,13 +768,11 @@ async fn rate_limit_middleware(
             let retry_after = retry_after_secs(wait);
             return (
                 StatusCode::TOO_MANY_REQUESTS,
-                [
-                    (
-                        header::RETRY_AFTER,
-                        HeaderValue::from_str(&retry_after.to_string())
-                            .unwrap_or_else(|_| HeaderValue::from_static("1")),
-                    ),
-                ],
+                [(
+                    header::RETRY_AFTER,
+                    HeaderValue::from_str(&retry_after.to_string())
+                        .unwrap_or_else(|_| HeaderValue::from_static("1")),
+                )],
                 Json(json!({
                     "error": "rate limit exceeded",
                     "code": "rate_limit_exceeded"
@@ -811,10 +807,12 @@ pub(crate) fn retry_after_secs(wait: Duration) -> u64 {
 /// - `quota`     — the bucket's replenishment policy.
 /// - `remaining` — cells currently available (0 = drained).
 /// - `next_wait` — time until the next single cell is available (from governor's
-///                 `not_until.wait_time_from(...)`).
+///   `not_until.wait_time_from(...)`).
 ///
 /// Formula: `max(cells_missing × period_per_cell, next_wait)`, rounded up.
 /// Returns 0 when the bucket is already full (`remaining == burst`).
+// Only exercised by unit tests until the `X-RateLimit-Reset` header is wired up.
+#[allow(dead_code)]
 pub(crate) fn reset_secs(quota: governor::Quota, remaining: u32, next_wait: Duration) -> u64 {
     let missing = quota.burst_size().get().saturating_sub(remaining);
     let refill = quota.replenish_interval().saturating_mul(missing);
@@ -978,12 +976,11 @@ pub(crate) fn client_ip_key_from_parts(
 
     // No X-Forwarded-For, or every hop was a trusted proxy: fall back to the
     // single-value X-Real-IP header, also gated on the trusted peer.
-    if let Some(value) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
-        if let Ok(ip) = value.trim().parse::<IpAddr>() {
-            if !trusted_proxies.iter().any(|net| net.contains(&ip)) {
-                return ip.to_string();
-            }
-        }
+    if let Some(value) = headers.get("x-real-ip").and_then(|v| v.to_str().ok())
+        && let Ok(ip) = value.trim().parse::<IpAddr>()
+        && !trusted_proxies.iter().any(|net| net.contains(&ip))
+    {
+        return ip.to_string();
     }
 
     peer_ip.to_string()
@@ -1123,14 +1120,14 @@ async fn ready(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 
     // 2. Horizon must respond (only when a gateway wallet is configured).
-    if state.config.gateway_configured() {
-        if let Err(reason) = check_horizon_ready(&state).await {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "status": "unavailable", "reason": reason })),
-            )
-                .into_response();
-        }
+    if state.config.gateway_configured()
+        && let Err(reason) = check_horizon_ready(&state).await
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "status": "unavailable", "reason": reason })),
+        )
+            .into_response();
     }
 
     (StatusCode::OK, Json(json!({ "status": "ok" }))).into_response()
@@ -1640,11 +1637,13 @@ mod tests {
 
         let public_ok = public.get("/health").await;
         public_ok.assert_status_ok();
-        assert!(public_ok
-            .header("strict-transport-security")
-            .to_str()
-            .unwrap_or("")
-            .contains("max-age="));
+        assert!(
+            public_ok
+                .header("strict-transport-security")
+                .to_str()
+                .unwrap_or("")
+                .contains("max-age=")
+        );
 
         let testnet_ok = testnet.get("/health").await;
         testnet_ok.assert_status_ok();
@@ -1742,9 +1741,12 @@ mod tests {
     /// 401, whereas an unmatched path would fall through to the 404 fallback.
     #[tokio::test]
     async fn full_router_builds_and_matches_path_params() {
-        let server = TestServer::new(router(header_test_state("testnet").await)).unwrap();
+        let server = TestServer::new(router(header_test_state("testnet").await));
 
-        for path in ["/v1/payments/some-id/webhooks", "/payments/some-id/webhooks"] {
+        for path in [
+            "/v1/payments/some-id/webhooks",
+            "/payments/some-id/webhooks",
+        ] {
             server
                 .get(path)
                 .await

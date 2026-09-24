@@ -126,7 +126,7 @@ tests/             Integration tests (API, concurrency, rate limits, webhooks, t
 
 | Layer | Choice |
 |---|---|
-| Language | Rust (2021 edition, 1.94+) |
+| Language | Rust (2024 edition, 1.94+) |
 | HTTP | [axum](https://github.com/tokio-rs/axum) + [tower-http](https://github.com/tower-rs/tower-http) |
 | Database | SQLite via [sqlx](https://github.com/launchbadge/sqlx) (WAL mode) |
 | Async runtime | [tokio](https://tokio.rs) |

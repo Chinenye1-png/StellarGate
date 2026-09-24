@@ -5,14 +5,14 @@
 
 use axum::http::StatusCode;
 use axum_test::TestServer;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 use std::sync::Arc;
 use stellargate::{
-    api,
+    AppState, api,
     config::{Config, ListenerMode},
-    db, AppState,
+    db,
 };
 
 fn make_config(rate_limit_requests_per_sec: u32) -> Config {
