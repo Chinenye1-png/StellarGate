@@ -428,6 +428,7 @@ pub struct ListQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub cursor: Option<String>,
+    pub search: Option<String>,
 }
 
 const DEFAULT_LIMIT: i64 = 20;
@@ -468,6 +469,7 @@ pub async fn list(
             &state.pool,
             &merchant_id,
             q.status.as_deref(),
+            q.search.as_deref(),
             limit,
             Some((&cursor_ts, &cursor_id)),
         )
@@ -491,6 +493,7 @@ pub async fn list(
             &state.pool,
             &merchant_id,
             q.status.as_deref(),
+            q.search.as_deref(),
             limit,
             offset,
         )
@@ -507,6 +510,14 @@ pub async fn list(
             "next_cursor": next_cursor,
         })))
     }
+}
+
+pub async fn summary(
+    State(state): State<Arc<AppState>>,
+    Extension(AuthenticatedMerchant(merchant_id)): Extension<AuthenticatedMerchant>,
+) -> Result<Json<Value>, AppError> {
+    let summary = db::payments_summary(&state.pool, &merchant_id).await?;
+    Ok(Json(json!({ "summary": summary })))
 }
 
 fn encode_cursor(ts: &str, id: &str) -> String {

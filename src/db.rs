@@ -653,27 +653,40 @@ pub async fn list_payments(
     pool: &Db,
     merchant_id: &str,
     status: Option<&str>,
+    search: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<(Vec<Payment>, i64)> {
+    let search_like = search.map(|s| format!("%{}%", s));
     let (rows, total) = if let Some(s) = status {
         let rows = sqlx::query(
             "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
                     webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments WHERE merchant_id = ? AND status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+             FROM payments
+             WHERE merchant_id = ? AND status = ?
+               AND (? IS NULL OR memo LIKE ? OR id LIKE ?)
+             ORDER BY created_at DESC LIMIT ? OFFSET ?",
         )
         .bind(merchant_id)
         .bind(s)
+        .bind(search_like.as_deref())
+        .bind(search_like.as_deref())
+        .bind(search_like.as_deref())
         .bind(limit)
         .bind(offset)
         .fetch_all(pool)
         .await?;
 
         let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM payments WHERE merchant_id = ? AND status = ?",
+            "SELECT COUNT(*) FROM payments
+             WHERE merchant_id = ? AND status = ?
+               AND (? IS NULL OR memo LIKE ? OR id LIKE ?)",
         )
         .bind(merchant_id)
         .bind(s)
+        .bind(search_like.as_deref())
+        .bind(search_like.as_deref())
+        .bind(search_like.as_deref())
         .fetch_one(pool)
         .await?;
 
@@ -682,18 +695,31 @@ pub async fn list_payments(
         let rows = sqlx::query(
             "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
                     webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments WHERE merchant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+             FROM payments
+             WHERE merchant_id = ?
+               AND (? IS NULL OR memo LIKE ? OR id LIKE ?)
+             ORDER BY created_at DESC LIMIT ? OFFSET ?",
         )
         .bind(merchant_id)
+        .bind(search_like.as_deref())
+        .bind(search_like.as_deref())
+        .bind(search_like.as_deref())
         .bind(limit)
         .bind(offset)
         .fetch_all(pool)
         .await?;
 
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM payments WHERE merchant_id = ?")
-            .bind(merchant_id)
-            .fetch_one(pool)
-            .await?;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payments
+             WHERE merchant_id = ?
+               AND (? IS NULL OR memo LIKE ? OR id LIKE ?)",
+        )
+        .bind(merchant_id)
+        .bind(search_like.as_deref())
+        .bind(search_like.as_deref())
+        .bind(search_like.as_deref())
+        .fetch_one(pool)
+        .await?;
 
         (rows, total)
     };
@@ -705,17 +731,25 @@ pub async fn list_payments_keyset(
     pool: &Db,
     merchant_id: &str,
     status: Option<&str>,
+    search: Option<&str>,
     limit: i64,
     cursor: Option<(&str, &str)>,
 ) -> Result<Vec<Payment>> {
+    let search_like = search.map(|s| format!("%{}%", s));
     let rows = match (status, cursor) {
         (None, None) => {
             sqlx::query(
                 "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
                     webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments WHERE merchant_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+             FROM payments
+             WHERE merchant_id = ?
+               AND (? IS NULL OR memo LIKE ? OR id LIKE ?)
+             ORDER BY created_at DESC, id DESC LIMIT ?",
             )
             .bind(merchant_id)
+            .bind(search_like.as_deref())
+            .bind(search_like.as_deref())
+            .bind(search_like.as_deref())
             .bind(limit)
             .fetch_all(pool)
             .await?
@@ -726,10 +760,15 @@ pub async fn list_payments_keyset(
                 "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
                     webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
              FROM payments
-             WHERE merchant_id = ? AND (created_at < ? OR (created_at = ? AND id < ?))
+             WHERE merchant_id = ?
+               AND (? IS NULL OR memo LIKE ? OR id LIKE ?)
+               AND (created_at < ? OR (created_at = ? AND id < ?))
              ORDER BY created_at DESC, id DESC LIMIT ?",
             )
             .bind(merchant_id)
+            .bind(search_like.as_deref())
+            .bind(search_like.as_deref())
+            .bind(search_like.as_deref())
             .bind(ts)
             .bind(ts)
             .bind(cid)
@@ -742,10 +781,16 @@ pub async fn list_payments_keyset(
             sqlx::query(
                 "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
                     webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments WHERE merchant_id = ? AND status = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+             FROM payments
+             WHERE merchant_id = ? AND status = ?
+               AND (? IS NULL OR memo LIKE ? OR id LIKE ?)
+             ORDER BY created_at DESC, id DESC LIMIT ?",
             )
             .bind(merchant_id)
             .bind(s)
+            .bind(search_like.as_deref())
+            .bind(search_like.as_deref())
+            .bind(search_like.as_deref())
             .bind(limit)
             .fetch_all(pool)
             .await?
@@ -756,11 +801,16 @@ pub async fn list_payments_keyset(
                 "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
                     webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
              FROM payments
-             WHERE merchant_id = ? AND status = ? AND (created_at < ? OR (created_at = ? AND id < ?))
+             WHERE merchant_id = ? AND status = ?
+               AND (? IS NULL OR memo LIKE ? OR id LIKE ?)
+               AND (created_at < ? OR (created_at = ? AND id < ?))
              ORDER BY created_at DESC, id DESC LIMIT ?",
             )
             .bind(merchant_id)
             .bind(s)
+            .bind(search_like.as_deref())
+            .bind(search_like.as_deref())
+            .bind(search_like.as_deref())
             .bind(ts)
             .bind(ts)
             .bind(cid)
@@ -771,6 +821,17 @@ pub async fn list_payments_keyset(
     };
 
     Ok(rows.iter().map(row_to_payment).collect())
+}
+
+pub async fn payments_summary(pool: &Db, merchant_id: &str) -> Result<Vec<(String, i64)>> {
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT status, COUNT(*) FROM payments WHERE merchant_id = ? GROUP BY status ORDER BY status",
+    )
+    .bind(merchant_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
 }
 
 /// All payments still awaiting confirmation or top-up, oldest first. Rows whose

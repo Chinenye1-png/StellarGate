@@ -20,6 +20,7 @@
   var state = {
     key: null,
     status: "",
+    search: "",
     cursor: null,
     loading: false,
   };
@@ -182,6 +183,7 @@
       setError($("gate-error"), null);
       loadVersion();
       pollHealth();
+      loadSummary();
       reload();
     });
   }
@@ -201,6 +203,7 @@
 
     var query = "/payments?limit=" + PAGE_SIZE;
     if (state.status) query += "&status=" + encodeURIComponent(state.status);
+    if (state.search) query += "&search=" + encodeURIComponent(state.search);
     if (state.cursor) query += "&cursor=" + encodeURIComponent(state.cursor);
 
     api(query)
@@ -220,6 +223,23 @@
       })
       .then(function () {
         state.loading = false;
+      });
+  }
+
+  function loadSummary() {
+    api("/payments/summary")
+      .then(function (body) {
+        var summary = $("summary");
+        clear(summary);
+        (body.summary || []).forEach(function (row) {
+          var card = el("div", "summary-card");
+          card.appendChild(el("span", "muted small", row[0]));
+          card.appendChild(el("strong", null, row[1]));
+          summary.appendChild(card);
+        });
+      })
+      .catch(function () {
+        clear($("summary"));
       });
   }
 
@@ -419,6 +439,10 @@
     });
 
     $("refresh").addEventListener("click", reload);
+    $("search").addEventListener("input", function () {
+      state.search = $("search").value.trim();
+      reload();
+    });
     $("load-more").addEventListener("click", loadPayments);
     $("detail-close").addEventListener("click", closeDetail);
     $("scrim").addEventListener("click", closeDetail);
