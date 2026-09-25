@@ -20,6 +20,7 @@
   var state = {
     key: null,
     status: "",
+    autoRefresh: false,
     cursor: null,
     loading: false,
   };
@@ -66,6 +67,33 @@
 
   function shortId(id) {
     return typeof id === "string" && id.length > 12 ? id.slice(0, 8) + "…" : id;
+  }
+
+  function formatAmount(amount, asset) {
+    var n = Number(amount);
+    if (!isFinite(n)) return amount + " " + asset;
+    return n.toFixed(7).replace(/\.?0+$/, "") + " " + asset;
+  }
+
+  function explorerTx(txHash) {
+    return "https://stellar.expert/explorer/public/tx/" + encodeURIComponent(txHash);
+  }
+
+  function readHashState() {
+    var params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    state.status = params.get("status") || "";
+    state.autoRefresh = params.get("auto_refresh") === "1";
+  }
+
+  function writeHashState() {
+    var params = new URLSearchParams();
+    if (state.status) params.set("status", state.status);
+    if (state.autoRefresh) params.set("auto_refresh", "1");
+    window.history.replaceState(
+      null,
+      "",
+      params.toString() ? "#" + params.toString() : window.location.pathname
+    );
   }
 
   /** Map a payment or delivery status onto a pill style. */
@@ -174,6 +202,7 @@
 
   function signIn(key, persist) {
     state.key = key;
+    readHashState();
     // Validate by making the cheapest authenticated call available.
     return api("/payments?limit=1").then(function () {
       if (persist !== null) storeKey(key, persist);
@@ -182,6 +211,7 @@
       setError($("gate-error"), null);
       loadVersion();
       pollHealth();
+      syncFilterUi();
       reload();
     });
   }
@@ -231,7 +261,7 @@
     statusCell.appendChild(el("span", pillClass(p.status), p.status));
     tr.appendChild(statusCell);
 
-    tr.appendChild(el("td", null, p.amount + " " + p.asset));
+    tr.appendChild(el("td", null, formatAmount(p.amount, p.asset)));
     tr.appendChild(el("td", "mono", p.memo));
     tr.appendChild(el("td", null, fmtTime(p.created_at)));
     tr.appendChild(el("td", "mono", shortId(p.id)));
@@ -265,8 +295,8 @@
       .then(function (p) {
         [
           ["Status", p.status],
-          ["Amount", p.amount + " " + p.asset],
-          ["Received", p.paid_amount ? p.paid_amount + " " + p.asset : "—"],
+          ["Amount", formatAmount(p.amount, p.asset)],
+          ["Received", p.paid_amount ? formatAmount(p.paid_amount, p.asset) : "—"],
           ["Memo", p.memo],
           ["Destination", p.destination_address],
           ["Transaction", p.tx_hash || "—"],
@@ -281,6 +311,14 @@
             var dd = document.createElement("dd");
             dd.appendChild(el("span", pillClass(p.status), p.status));
             fields.appendChild(dd);
+          } else if (pair[0] === "Transaction" && p.tx_hash) {
+            var tx = document.createElement("dd");
+            var link = el("a", "mono", shortId(p.tx_hash));
+            link.href = explorerTx(p.tx_hash);
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            tx.appendChild(link);
+            fields.appendChild(tx);
           } else {
             fields.appendChild(el("dd", "mono", pair[1]));
           }
@@ -403,6 +441,13 @@
 
   // ── Wiring ────────────────────────────────────────────────────────────
 
+  function syncFilterUi() {
+    Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (chip) {
+      chip.className = (chip.getAttribute("data-status") || "") === state.status ? "chip chip-on" : "chip";
+    });
+    $("auto-refresh").checked = state.autoRefresh;
+  }
+
   function init() {
     $("gate-form").addEventListener("submit", function (ev) {
       ev.preventDefault();
@@ -422,6 +467,10 @@
     $("load-more").addEventListener("click", loadPayments);
     $("detail-close").addEventListener("click", closeDetail);
     $("scrim").addEventListener("click", closeDetail);
+    $("auto-refresh").addEventListener("change", function () {
+      state.autoRefresh = $("auto-refresh").checked;
+      writeHashState();
+    });
 
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "Escape") closeDetail();
@@ -439,6 +488,7 @@
           );
           chip.className = "chip chip-on";
           state.status = chip.getAttribute("data-status") || "";
+          writeHashState();
           reload();
         });
       }
@@ -447,6 +497,11 @@
     window.setInterval(function () {
       if (state.key) pollHealth();
     }, 30000);
+    window.setInterval(function () {
+      if (state.key && state.autoRefresh && (!state.status || state.status === "pending")) {
+        reload();
+      }
+    }, 15000);
 
     // Resume an existing session when a key is already stored.
     /* Resume an existing session when a key is already stored. The gate is
