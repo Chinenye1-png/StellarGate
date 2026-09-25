@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Dashboard maintenance CI now runs a dependency-free JavaScript syntax check
+  and static accessibility smoke check for `static/dashboard.*`, so the
+  embedded dashboard keeps a small quality gate without introducing an npm
+  build step.
+
 ### Changed
 
 - **`reqwest` 0.12 → 0.13 (issue #645).** The `rustls-tls` feature is now
