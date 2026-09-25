@@ -10,6 +10,8 @@
  * be a stored-XSS vector.
  */
 
+import { fmtTime, shortId } from "/dashboard/format.js";
+
 (function () {
   "use strict";
 
@@ -20,7 +22,8 @@
   var state = {
     key: null,
     status: "",
-    search: "",
+    createdAfter: "",
+    createdBefore: "",
     cursor: null,
     loading: false,
   };
@@ -58,16 +61,6 @@
   }
 
   // ── Formatting ────────────────────────────────────────────────────────
-
-  function fmtTime(iso) {
-    if (!iso) return "—";
-    var d = new Date(iso);
-    return isNaN(d.getTime()) ? iso : d.toLocaleString();
-  }
-
-  function shortId(id) {
-    return typeof id === "string" && id.length > 12 ? id.slice(0, 8) + "…" : id;
-  }
 
   /** Map a payment or delivery status onto a pill style. */
   function pillClass(status) {
@@ -203,7 +196,8 @@
 
     var query = "/payments?limit=" + PAGE_SIZE;
     if (state.status) query += "&status=" + encodeURIComponent(state.status);
-    if (state.search) query += "&search=" + encodeURIComponent(state.search);
+    if (state.createdAfter) query += "&created_after=" + encodeURIComponent(state.createdAfter + "T00:00:00Z");
+    if (state.createdBefore) query += "&created_before=" + encodeURIComponent(state.createdBefore + "T23:59:59Z");
     if (state.cursor) query += "&cursor=" + encodeURIComponent(state.cursor);
 
     api(query)
@@ -439,8 +433,12 @@
     });
 
     $("refresh").addEventListener("click", reload);
-    $("search").addEventListener("input", function () {
-      state.search = $("search").value.trim();
+    $("created-after").addEventListener("change", function () {
+      state.createdAfter = $("created-after").value;
+      reload();
+    });
+    $("created-before").addEventListener("change", function () {
+      state.createdBefore = $("created-before").value;
       reload();
     });
     $("load-more").addEventListener("click", loadPayments);

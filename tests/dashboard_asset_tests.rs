@@ -10,9 +10,9 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 use std::sync::Arc;
 use stellargate::{
-    api,
+    AppState, api,
     config::{Config, ListenerMode},
-    db, AppState,
+    db,
 };
 
 fn make_config() -> Config {
@@ -119,7 +119,7 @@ async fn test_server() -> TestServer {
         task_health: stellargate::TaskHealth::new(),
     }))
     .into_make_service_with_connect_info::<std::net::SocketAddr>();
-    TestServer::new(router).unwrap()
+    TestServer::new(router)
 }
 
 /// Mirrors `DASHBOARD_CSP` in `src/api/mod.rs`. Compared verbatim so any
@@ -142,8 +142,16 @@ async fn dashboard_assets_keep_content_type_and_csp() {
 
     for (path, content_type, body) in [
         ("/dashboard", "text/html; charset=utf-8", DASHBOARD_HTML),
-        ("/dashboard/app.css", "text/css; charset=utf-8", DASHBOARD_CSS),
-        ("/dashboard/app.js", "text/javascript; charset=utf-8", DASHBOARD_JS),
+        (
+            "/dashboard/app.css",
+            "text/css; charset=utf-8",
+            DASHBOARD_CSS,
+        ),
+        (
+            "/dashboard/app.js",
+            "text/javascript; charset=utf-8",
+            DASHBOARD_JS,
+        ),
     ] {
         let res = server.get(path).await;
         res.assert_status_ok();
