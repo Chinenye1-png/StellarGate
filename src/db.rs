@@ -634,50 +634,49 @@ pub async fn list_payments(
     pool: &Db,
     merchant_id: &str,
     status: Option<&str>,
+    created_after: Option<&str>,
+    created_before: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<(Vec<Payment>, i64)> {
-    let (rows, total) = if let Some(s) = status {
-        let rows = sqlx::query(
-            "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
-                    webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments WHERE merchant_id = ? AND status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        )
-        .bind(merchant_id)
-        .bind(s)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(
+        "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
+                webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
+         FROM payments
+         WHERE merchant_id = ?
+           AND (? IS NULL OR status = ?)
+           AND (? IS NULL OR created_at >= ?)
+           AND (? IS NULL OR created_at <= ?)
+         ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+    )
+    .bind(merchant_id)
+    .bind(status)
+    .bind(status)
+    .bind(created_after)
+    .bind(created_after)
+    .bind(created_before)
+    .bind(created_before)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
 
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM payments WHERE merchant_id = ? AND status = ?",
-        )
-        .bind(merchant_id)
-        .bind(s)
-        .fetch_one(pool)
-        .await?;
-
-        (rows, total)
-    } else {
-        let rows = sqlx::query(
-            "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
-                    webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments WHERE merchant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        )
-        .bind(merchant_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?;
-
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM payments WHERE merchant_id = ?")
-            .bind(merchant_id)
-            .fetch_one(pool)
-            .await?;
-
-        (rows, total)
-    };
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM payments
+         WHERE merchant_id = ?
+           AND (? IS NULL OR status = ?)
+           AND (? IS NULL OR created_at >= ?)
+           AND (? IS NULL OR created_at <= ?)",
+    )
+    .bind(merchant_id)
+    .bind(status)
+    .bind(status)
+    .bind(created_after)
+    .bind(created_after)
+    .bind(created_before)
+    .bind(created_before)
+    .fetch_one(pool)
+    .await?;
 
     Ok((rows.iter().map(row_to_payment).collect(), total))
 }
@@ -686,70 +685,37 @@ pub async fn list_payments_keyset(
     pool: &Db,
     merchant_id: &str,
     status: Option<&str>,
+    created_after: Option<&str>,
+    created_before: Option<&str>,
     limit: i64,
     cursor: Option<(&str, &str)>,
 ) -> Result<Vec<Payment>> {
-    let rows = match (status, cursor) {
-        (None, None) => {
-            sqlx::query(
-                "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
-                    webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments WHERE merchant_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            )
-            .bind(merchant_id)
-            .bind(limit)
-            .fetch_all(pool)
-            .await?
-        }
-
-        (None, Some((ts, cid))) => {
-            sqlx::query(
-                "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
-                    webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments
-             WHERE merchant_id = ? AND (created_at < ? OR (created_at = ? AND id < ?))
-             ORDER BY created_at DESC, id DESC LIMIT ?",
-            )
-            .bind(merchant_id)
-            .bind(ts)
-            .bind(ts)
-            .bind(cid)
-            .bind(limit)
-            .fetch_all(pool)
-            .await?
-        }
-
-        (Some(s), None) => {
-            sqlx::query(
-                "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
-                    webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments WHERE merchant_id = ? AND status = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            )
-            .bind(merchant_id)
-            .bind(s)
-            .bind(limit)
-            .fetch_all(pool)
-            .await?
-        }
-
-        (Some(s), Some((ts, cid))) => {
-            sqlx::query(
-                "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
-                    webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
-             FROM payments
-             WHERE merchant_id = ? AND status = ? AND (created_at < ? OR (created_at = ? AND id < ?))
-             ORDER BY created_at DESC, id DESC LIMIT ?",
-            )
-            .bind(merchant_id)
-            .bind(s)
-            .bind(ts)
-            .bind(ts)
-            .bind(cid)
-            .bind(limit)
-            .fetch_all(pool)
-            .await?
-        }
-    };
+    let (cursor_ts, cursor_id) = cursor.unwrap_or(("9999-12-31T23:59:59Z", ""));
+    let rows = sqlx::query(
+        "SELECT id, merchant_id, destination_address, memo, amount, asset, asset_issuer, status,
+                webhook_url, tx_hash, paid_amount, created_at, updated_at, expires_at
+         FROM payments
+         WHERE merchant_id = ?
+           AND (? IS NULL OR status = ?)
+           AND (? IS NULL OR created_at >= ?)
+           AND (? IS NULL OR created_at <= ?)
+           AND (? = '' OR created_at < ? OR (created_at = ? AND id < ?))
+         ORDER BY created_at DESC, id DESC LIMIT ?",
+    )
+    .bind(merchant_id)
+    .bind(status)
+    .bind(status)
+    .bind(created_after)
+    .bind(created_after)
+    .bind(created_before)
+    .bind(created_before)
+    .bind(cursor_id)
+    .bind(cursor_ts)
+    .bind(cursor_ts)
+    .bind(cursor_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
 
     Ok(rows.iter().map(row_to_payment).collect())
 }
