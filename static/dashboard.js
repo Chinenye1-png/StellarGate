@@ -10,6 +10,8 @@
  * be a stored-XSS vector.
  */
 
+import { fmtTime, shortId } from "/dashboard/format.js";
+
 (function () {
   "use strict";
 
@@ -20,7 +22,8 @@
   var state = {
     key: null,
     status: "",
-    autoRefresh: false,
+    createdAfter: "",
+    createdBefore: "",
     cursor: null,
     loading: false,
   };
@@ -58,43 +61,6 @@
   }
 
   // ── Formatting ────────────────────────────────────────────────────────
-
-  function fmtTime(iso) {
-    if (!iso) return "—";
-    var d = new Date(iso);
-    return isNaN(d.getTime()) ? iso : d.toLocaleString();
-  }
-
-  function shortId(id) {
-    return typeof id === "string" && id.length > 12 ? id.slice(0, 8) + "…" : id;
-  }
-
-  function formatAmount(amount, asset) {
-    var n = Number(amount);
-    if (!isFinite(n)) return amount + " " + asset;
-    return n.toFixed(7).replace(/\.?0+$/, "") + " " + asset;
-  }
-
-  function explorerTx(txHash) {
-    return "https://stellar.expert/explorer/public/tx/" + encodeURIComponent(txHash);
-  }
-
-  function readHashState() {
-    var params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    state.status = params.get("status") || "";
-    state.autoRefresh = params.get("auto_refresh") === "1";
-  }
-
-  function writeHashState() {
-    var params = new URLSearchParams();
-    if (state.status) params.set("status", state.status);
-    if (state.autoRefresh) params.set("auto_refresh", "1");
-    window.history.replaceState(
-      null,
-      "",
-      params.toString() ? "#" + params.toString() : window.location.pathname
-    );
-  }
 
   /** Map a payment or delivery status onto a pill style. */
   function pillClass(status) {
@@ -211,7 +177,7 @@
       setError($("gate-error"), null);
       loadVersion();
       pollHealth();
-      syncFilterUi();
+      loadSummary();
       reload();
     });
   }
@@ -231,6 +197,8 @@
 
     var query = "/payments?limit=" + PAGE_SIZE;
     if (state.status) query += "&status=" + encodeURIComponent(state.status);
+    if (state.createdAfter) query += "&created_after=" + encodeURIComponent(state.createdAfter + "T00:00:00Z");
+    if (state.createdBefore) query += "&created_before=" + encodeURIComponent(state.createdBefore + "T23:59:59Z");
     if (state.cursor) query += "&cursor=" + encodeURIComponent(state.cursor);
 
     api(query)
@@ -250,6 +218,23 @@
       })
       .then(function () {
         state.loading = false;
+      });
+  }
+
+  function loadSummary() {
+    api("/payments/summary")
+      .then(function (body) {
+        var summary = $("summary");
+        clear(summary);
+        (body.summary || []).forEach(function (row) {
+          var card = el("div", "summary-card");
+          card.appendChild(el("span", "muted small", row[0]));
+          card.appendChild(el("strong", null, row[1]));
+          summary.appendChild(card);
+        });
+      })
+      .catch(function () {
+        clear($("summary"));
       });
   }
 
@@ -464,6 +449,14 @@
     });
 
     $("refresh").addEventListener("click", reload);
+    $("created-after").addEventListener("change", function () {
+      state.createdAfter = $("created-after").value;
+      reload();
+    });
+    $("created-before").addEventListener("change", function () {
+      state.createdBefore = $("created-before").value;
+      reload();
+    });
     $("load-more").addEventListener("click", loadPayments);
     $("detail-close").addEventListener("click", closeDetail);
     $("scrim").addEventListener("click", closeDetail);
