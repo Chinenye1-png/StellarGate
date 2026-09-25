@@ -521,6 +521,14 @@ pub async fn list(
     }
 }
 
+pub async fn summary(
+    State(state): State<Arc<AppState>>,
+    Extension(AuthenticatedMerchant(merchant_id)): Extension<AuthenticatedMerchant>,
+) -> Result<Json<Value>, AppError> {
+    let summary = db::payments_summary(&state.pool, &merchant_id).await?;
+    Ok(Json(json!({ "summary": summary })))
+}
+
 fn encode_cursor(ts: &str, id: &str) -> String {
     hex::encode(format!("{ts}\t{id}"))
 }

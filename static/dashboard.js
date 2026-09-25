@@ -176,6 +176,7 @@ import { fmtTime, shortId } from "/dashboard/format.js";
       setError($("gate-error"), null);
       loadVersion();
       pollHealth();
+      loadSummary();
       reload();
     });
   }
@@ -216,6 +217,23 @@ import { fmtTime, shortId } from "/dashboard/format.js";
       })
       .then(function () {
         state.loading = false;
+      });
+  }
+
+  function loadSummary() {
+    api("/payments/summary")
+      .then(function (body) {
+        var summary = $("summary");
+        clear(summary);
+        (body.summary || []).forEach(function (row) {
+          var card = el("div", "summary-card");
+          card.appendChild(el("span", "muted small", row[0]));
+          card.appendChild(el("strong", null, row[1]));
+          summary.appendChild(card);
+        });
+      })
+      .catch(function () {
+        clear($("summary"));
       });
   }
 
