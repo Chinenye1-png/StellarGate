@@ -434,6 +434,8 @@ pub struct ListQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub cursor: Option<String>,
+    pub created_after: Option<String>,
+    pub created_before: Option<String>,
 }
 
 const DEFAULT_LIMIT: i64 = 20;
@@ -474,6 +476,8 @@ pub async fn list(
             &state.pool,
             &merchant_id,
             q.status.as_deref(),
+            q.created_after.as_deref(),
+            q.created_before.as_deref(),
             limit,
             Some((&cursor_ts, &cursor_id)),
         )
@@ -497,6 +501,8 @@ pub async fn list(
             &state.pool,
             &merchant_id,
             q.status.as_deref(),
+            q.created_after.as_deref(),
+            q.created_before.as_deref(),
             limit,
             offset,
         )
