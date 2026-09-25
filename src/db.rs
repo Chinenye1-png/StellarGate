@@ -288,6 +288,25 @@ pub async fn migrate(pool: &Db) -> Result<()> {
         .execute(&mut *tx)
         .await?;
 
+    /* Defense-in-depth for issue #621: `revoke_api_key` already refuses to
+    revoke a merchant's last active key atomically, but this trigger enforces
+    the same invariant in the database itself, so any other code path (or a
+    future regression) that tombstones the final active key is rejected
+    within the same statement/transaction. */
+    sqlx::query(
+        "CREATE TRIGGER IF NOT EXISTS trg_api_keys_keep_one_active
+         BEFORE UPDATE OF revoked_at ON api_keys
+         WHEN OLD.revoked_at IS NULL
+          AND NEW.revoked_at IS NOT NULL
+          AND (SELECT COUNT(*) FROM api_keys
+                WHERE merchant_id = OLD.merchant_id AND revoked_at IS NULL) <= 1
+         BEGIN
+             SELECT RAISE(ABORT, 'last_active_key');
+         END",
+    )
+    .execute(&mut *tx)
+    .await?;
+
     /* Carry pre-existing single-key merchants across. Their raw key is not
     recoverable, but the hash is all authentication needs, so keys issued
     before this table existed keep working. The prefix is unknown for those
@@ -1377,7 +1396,7 @@ const KEY_PREFIX_LEN: usize = 12;
 ///
 /// Returns `(raw_key, prefix)`. The raw key is shown once and never stored.
 pub fn generate_api_key() -> (String, String) {
-    use rand::RngCore;
+    use rand::Rng;
     let mut bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut bytes);
     let raw = format!("sg_{}", hex::encode(bytes));
@@ -1653,6 +1672,21 @@ mod tests {
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].prefix, "legacy");
         assert!(keys[0].revoked_at.is_none());
+    }
+
+    /// Pins the key format across `rand` upgrades: `sg_` + 64 lowercase hex
+    /// chars (256 bits), with a `KEY_PREFIX_LEN`-char display prefix.
+    #[test]
+    fn generated_api_key_has_stable_length_and_alphabet() {
+        let (raw, prefix) = generate_api_key();
+        let body = raw.strip_prefix("sg_").expect("key starts with sg_");
+        assert_eq!(body.len(), 64);
+        assert!(body
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)));
+        assert_eq!(prefix.len(), KEY_PREFIX_LEN);
+        assert!(raw.starts_with(&prefix));
+        assert_ne!(raw, generate_api_key().0);
     }
 
     /// Revoking a key must take effect immediately for authentication.

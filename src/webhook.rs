@@ -620,6 +620,10 @@ mod tests {
                 retry_delay(1, BASE, MAX) >= BASE / 2,
                 "every retry keeps a floor of half the configured base delay"
             );
+            assert!(
+                retry_delay(1, BASE, MAX) <= BASE,
+                "jitter never pushes a retry past the un-jittered ceiling"
+            );
         }
     }
 
