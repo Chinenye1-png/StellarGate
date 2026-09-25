@@ -1805,10 +1805,12 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(find_pending_by_memo(&pool, "MEMOX")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            find_pending_by_memo(&pool, "MEMOX")
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let expired = expire_overdue(&pool).await.unwrap();
         assert_eq!(expired.len(), 1);
@@ -1908,34 +1910,44 @@ mod tests {
             .unwrap();
 
         // First time a transaction is seen it is recorded and counted.
-        assert!(record_processed_tx(&pool, "p", "TX_A", 0, 40_000_000)
-            .await
-            .unwrap());
+        assert!(
+            record_processed_tx(&pool, "p", "TX_A", 0, 40_000_000)
+                .await
+                .unwrap()
+        );
         assert_eq!(sum_processed_stroops(&pool, "p").await.unwrap(), 40_000_000);
 
         // Re-seeing the same transaction + operation index is a no-op — no double credit.
-        assert!(!record_processed_tx(&pool, "p", "TX_A", 0, 40_000_000)
-            .await
-            .unwrap());
+        assert!(
+            !record_processed_tx(&pool, "p", "TX_A", 0, 40_000_000)
+                .await
+                .unwrap()
+        );
         assert_eq!(sum_processed_stroops(&pool, "p").await.unwrap(), 40_000_000);
 
         // A distinct transaction adds to the running total.
-        assert!(record_processed_tx(&pool, "p", "TX_B", 0, 30_000_000)
-            .await
-            .unwrap());
+        assert!(
+            record_processed_tx(&pool, "p", "TX_B", 0, 30_000_000)
+                .await
+                .unwrap()
+        );
         assert_eq!(sum_processed_stroops(&pool, "p").await.unwrap(), 70_000_000);
 
         // Re-seeing an *earlier* transaction after a later one is still a no-op,
         // regardless of order (issue #119).
-        assert!(!record_processed_tx(&pool, "p", "TX_A", 0, 40_000_000)
-            .await
-            .unwrap());
+        assert!(
+            !record_processed_tx(&pool, "p", "TX_A", 0, 40_000_000)
+                .await
+                .unwrap()
+        );
         assert_eq!(sum_processed_stroops(&pool, "p").await.unwrap(), 70_000_000);
 
         // A second operation within TX_A (different operation_index) IS a new credit (issue #613).
-        assert!(record_processed_tx(&pool, "p", "TX_A", 1, 20_000_000)
-            .await
-            .unwrap());
+        assert!(
+            record_processed_tx(&pool, "p", "TX_A", 1, 20_000_000)
+                .await
+                .unwrap()
+        );
         assert_eq!(sum_processed_stroops(&pool, "p").await.unwrap(), 90_000_000);
 
         // Rows are scoped per intent.
@@ -1981,10 +1993,12 @@ mod tests {
             .unwrap();
 
         // Freshly inserted, so a large grace window makes it ineligible...
-        assert!(list_redrivable_deliveries(&pool, 8, 3600, 0, 0)
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            list_redrivable_deliveries(&pool, 8, 3600, 0, 0)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         // ...while a zero grace window makes it immediately eligible.
         assert_eq!(
             list_redrivable_deliveries(&pool, 8, 0, 0, 0)
