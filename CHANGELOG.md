@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Dashboard maintenance CI now runs a dependency-free JavaScript syntax check
+  and static accessibility smoke check for `static/dashboard.*`, so the
+  embedded dashboard keeps a small quality gate without introducing an npm
+  build step.
+
 ### Changed
 
 - **Rust edition 2021 → 2024 (issue #662).** No `/v1` API change. `cargo fix
