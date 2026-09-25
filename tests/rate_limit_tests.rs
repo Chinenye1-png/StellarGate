@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use axum_test::TestServer;
 use serde_json::{json, Value};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use std::future::IntoFuture;
 use std::str::FromStr;
 use std::sync::Arc;
 use stellargate::{
@@ -92,6 +93,52 @@ async fn provision_merchant(server: &TestServer) -> String {
         .await;
     res.assert_status(StatusCode::CREATED);
     res.json::<Value>()["api_key"].as_str().unwrap().to_string()
+}
+
+fn header(res: &axum_test::TestResponse, name: &str) -> u64 {
+    res.headers()
+        .get(name)
+        .unwrap_or_else(|| panic!("response is missing the {name} header"))
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn rate_limit_headers_track_quota_before_and_after_exhaustion() {
+    let (server, _pool) = server_with_config(make_config(2)).await;
+    let _key = provision_merchant(&server).await;
+    let auth = "******";
+    let body = json!({ "amount": "1", "asset": "XLM" });
+
+    let first = server
+        .post("/v1/payments")
+        .add_header("Authorization", auth)
+        .json(&body)
+        .await;
+    first.assert_status(StatusCode::CREATED);
+    assert_eq!(header(&first, "x-ratelimit-limit"), 2);
+    assert_eq!(header(&first, "x-ratelimit-remaining"), 1);
+
+    let second = server
+        .post("/v1/payments")
+        .add_header("Authorization", auth)
+        .json(&body)
+        .await;
+    second.assert_status(StatusCode::CREATED);
+    assert_eq!(header(&second, "x-ratelimit-limit"), 2);
+    assert_eq!(header(&second, "x-ratelimit-remaining"), 0);
+
+    let throttled = server
+        .post("/v1/payments")
+        .add_header("Authorization", auth)
+        .json(&body)
+        .await;
+    throttled.assert_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(header(&throttled, "x-ratelimit-limit"), 2);
+    assert_eq!(header(&throttled, "x-ratelimit-remaining"), 0);
+    assert!(header(&throttled, "x-ratelimit-reset") >= header(&throttled, "retry-after"));
 }
 
 #[tokio::test]
@@ -216,4 +263,37 @@ async fn test_redeliver_runs_auth_before_merchant_limiter() {
             .await;
         res.assert_status(StatusCode::UNAUTHORIZED);
     }
+}
+
+/// Regression for the per-merchant limiter check-then-act race: with a cold
+/// limiter cache, many concurrent requests must share one limiter (atomic
+/// `get_with`) rather than each building a fresh full-burst limiter. At most
+/// the configured quota (plus at most one cell replenished mid-test) may be
+/// admitted.
+#[tokio::test]
+async fn test_merchant_redeliver_limiter_cold_cache_burst_is_bounded() {
+    const QUOTA: u32 = 3;
+    const N: usize = 40;
+
+    let (server, _pool) = server_with_config(make_config(QUOTA)).await;
+    let key = provision_merchant(&server).await;
+    let auth = format!("Bearer {key}");
+
+    // First authenticated redeliver request for this merchant: limiter absent.
+    let responses = futures_util::future::join_all((0..N).map(|_| {
+        server
+            .post("/payments/nope/webhooks/nope/redeliver")
+            .add_header("Authorization", auth.clone())
+            .into_future()
+    }))
+    .await;
+
+    let admitted = responses
+        .iter()
+        .filter(|r| r.status_code() != StatusCode::TOO_MANY_REQUESTS)
+        .count();
+    assert!(
+        admitted <= QUOTA as usize + 1,
+        "admitted {admitted} of {N} concurrent requests; quota is {QUOTA}"
+    );
 }
